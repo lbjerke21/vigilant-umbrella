@@ -11,6 +11,21 @@ st.write("Upload your UCaaS Excel file and generate the two formatted CSVs autom
 
 uploaded_file = st.file_uploader("Upload Excel file (.xlsx)", type=["xlsx"])
 
+
+# --- Helper functions ---
+
+def _norm(name: str) -> str:
+    """Normalize a sheet name for case/space-insensitive matching."""
+    return "".join(name.lower().split())
+
+def get_sheet(wb, wanted: str):
+    """Return worksheet even if the name capitalization or spacing differs."""
+    wanted_norm = _norm(wanted)
+    for name in wb.sheetnames:
+        if _norm(name) == wanted_norm:
+            return wb[name]
+    raise KeyError(f"Worksheet '{wanted}' not found. Available: {wb.sheetnames}")
+
 def convert_template(template_name, region):
     """Convert UCaaS template names based on mapping rules."""
     if pd.isna(template_name):
@@ -31,12 +46,21 @@ def convert_template(template_name, region):
             return f"{region}{suffix}"
     return ""
 
+
+# --- Main app logic ---
+
 if uploaded_file:
-    # Read workbook
+    # Read workbook and normalize sheet names
     wb = load_workbook(uploaded_file, data_only=True)
-    user_details = wb["User details"]
-    cmdlink = wb["CommandLink"]
-    call_flow = wb["Call flow"]
+    try:
+        user_details = get_sheet(wb, "User details")
+        cmdlink      = get_sheet(wb, "CommandLink")
+        call_flow    = get_sheet(wb, "Call flow")
+    except KeyError as e:
+        st.error(str(e))
+        st.stop()
+
+    st.caption(f"✅ Found sheets: {wb.sheetnames}")
 
     # Extract key metadata
     customer_name = user_details["B3"].value
@@ -99,8 +123,7 @@ if uploaded_file:
     mlg_rows = []
     mlg_pilot_rows = []
 
-    # Build dataframe from User details for easier parsing
-    df = pd.read_excel(uploaded_file, sheet_name="User details", header=None)
+    df = pd.read_excel(uploaded_file, sheet_name=get_sheet(wb, "User details").title, header=None)
     start_row = 8  # Row 9 in Excel
     for i in range(start_row, len(df)):
         name = df.iloc[i, 0]
@@ -112,7 +135,6 @@ if uploaded_file:
         department = df.iloc[i, 8]
         template_raw = df.iloc[i, 11]
         mac = df.iloc[i, 12]
-        mlg_name = df.iloc[i, 13]
 
         if pd.isna(phone) or str(template_raw).strip() in ["None", "Reserve Number", "None | Reserve Number"]:
             continue
@@ -121,7 +143,6 @@ if uploaded_file:
         line_state_monitor = "" if template in [f"{region}_AA_Easy", f"{region}_AA_Premium"] else "TRUE"
         calling_name_delivery = "" if template in [f"{region}_AA_Easy", f"{region}_AA_Premium"] else name
         intra_bg_calls = "" if template in [f"{region}_AA_Easy", f"{region}_AA_Premium"] else "TRUE"
-
         account_type_value = "Administrator" if str(account_type) in ["Location Admin", "Company Admin"] else "Normal"
 
         seat_rows.append({
@@ -169,7 +190,7 @@ if uploaded_file:
             "First Directory Number": phone
         })
 
-    # MLHG logic
+    # --- MLHG Section ---
     for i in range(16, 27):
         mlg_name = call_flow[f"B{i}"].value
         if not mlg_name:
