@@ -97,9 +97,9 @@ if uploaded_file:
     def pad12(values): return (values + [""] * max(0, BG_COLS - len(values)))[:BG_COLS]
     bg_template = f"{region} BG"
 
-    # Numbers from User details!D9+ and Call flow!D17:D27
+    # Numbers from User details!B9+ (phones) and Call flow!D17:D27 (pilot numbers)
     numbers = []
-    for cell in user_details_ws["D9":"D100"]:
+    for cell in user_details_ws["B9":"B100"]:       # <-- FIXED: was D9; now B9
         for c in cell:
             if c.value:
                 numbers.append(str(c.value).strip())
@@ -107,6 +107,8 @@ if uploaded_file:
         for c in cell:
             if c.value:
                 numbers.append(str(c.value).strip())
+    # Optional: de-dupe while preserving order
+    numbers = [n for n in dict.fromkeys(numbers) if n]
 
     # Unique departments from User details!I9+
     departments = []
@@ -150,7 +152,7 @@ if uploaded_file:
         "",
         "TRUE",
         "0",
-        "",
+        "",          # <-- FIXED: limit concurrent calls is now blank
         "16",
         "Enhanced",
         "EAS Voicemail",
@@ -453,7 +455,6 @@ if uploaded_file:
         file_name=bg_filename,
         mime="text/csv",
     )
-
     st.download_button(
         label=f"⬇️ Download {seats_filename}",
         data=seats_buffer.getvalue(),
@@ -463,4 +464,3 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
-
