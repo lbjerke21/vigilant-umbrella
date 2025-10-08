@@ -282,7 +282,7 @@ if uploaded_file:
             "",
             "",
             "eng",
-            "",
+            "defaultGroup",
             "",
             acct_value,
             acct_value,
@@ -475,3 +475,4 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
+
