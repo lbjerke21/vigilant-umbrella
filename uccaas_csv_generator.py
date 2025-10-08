@@ -99,7 +99,7 @@ if uploaded_file:
 
     # Numbers from User details!B9+ (phones) and Call flow!D17:D27 (pilot numbers)
     numbers = []
-    for cell in user_details_ws["B9":"B100"]:       # <-- FIXED: was D9; now B9
+    for cell in user_details_ws["B9":"B100"]:  # fixed to B9
         for c in cell:
             if c.value:
                 numbers.append(str(c.value).strip())
@@ -107,7 +107,7 @@ if uploaded_file:
         for c in cell:
             if c.value:
                 numbers.append(str(c.value).strip())
-    # Optional: de-dupe while preserving order
+    # de-dupe while preserving order
     numbers = [n for n in dict.fromkeys(numbers) if n]
 
     # Unique departments from User details!I9+
@@ -152,7 +152,7 @@ if uploaded_file:
         "",
         "TRUE",
         "0",
-        "",          # <-- FIXED: limit concurrent calls is now blank
+        "",      # limit concurrent calls now blank
         "16",
         "Enhanced",
         "EAS Voicemail",
@@ -249,13 +249,13 @@ if uploaded_file:
     ]))
 
     for i in range(START_ROW, len(user_df)):
-        name = user_df.iloc[i, COL_NAME]
-        phone = user_df.iloc[i, COL_PHONE]
-        calling = user_df.iloc[i, COL_CALLING]
-        email = user_df.iloc[i, COL_EMAIL]
-        account_type = user_df.iloc[i, COL_ACCT_TYPE]
-        department = user_df.iloc[i, COL_DEPT]
-        template_raw = user_df.iloc[i, COL_TEMPLATE]
+        name = user_df.iloc[i, 0]
+        phone = user_df.iloc[i, 1]
+        calling = user_df.iloc[i, 3]
+        email = user_df.iloc[i, 5]
+        account_type = user_df.iloc[i, 7]
+        department = user_df.iloc[i, 8]
+        template_raw = user_df.iloc[i, 11]
 
         # Skip blank phone or reserved/none templates
         if pd.isna(phone) or str(template_raw).strip() in ["None", "Reserve Number", "None | Reserve Number"]:
@@ -318,8 +318,8 @@ if uploaded_file:
     ]))
 
     for i in range(START_ROW, len(user_df)):
-        phone = user_df.iloc[i, COL_PHONE]
-        mac = user_df.iloc[i, COL_MAC]
+        phone = user_df.iloc[i, 1]
+        mac = user_df.iloc[i, 12]
         if pd.isna(phone) or pd.isna(mac) or str(mac).strip() == "":
             continue
         sub_rows.append(pad27([
@@ -352,8 +352,8 @@ if uploaded_file:
     ]))
 
     for i in range(START_ROW, len(user_df)):
-        phone = user_df.iloc[i, COL_PHONE]
-        ext = user_df.iloc[i, COL_EXT]
+        phone = user_df.iloc[i, 1]
+        ext = user_df.iloc[i, 4]
         if pd.isna(phone) or pd.isna(ext) or str(ext).strip() == "":
             continue
         sub_rows.append(pad27([
@@ -371,7 +371,7 @@ if uploaded_file:
     sub_rows.append(pad27([""]))
     sub_rows.append(pad27([""]))
 
-    # ---- MLHGs ----
+    # ---- MLHGs ---- (start at row 17, Hunt on no-answer=FALSE, normalize Ring All)
     sub_rows.append(pad27(["#MLHGs"]))
     sub_rows.append(pad27(["MLHG"]))
     sub_rows.append(pad27([
@@ -383,31 +383,36 @@ if uploaded_file:
         "Hunt on no-answer",
     ]))
 
-    for r in range(16, 27):  # Excel rows 17..26
+    for r in range(17, 28):  # Excel rows 17..27 (skip header on row 16)
         mlg_name = call_flow_ws[f"B{r}"].value
         if not mlg_name:
             continue
         dist_alg = call_flow_ws[f"C{r}"].value
+        dist_alg_clean = "" if pd.isna(dist_alg) else str(dist_alg).strip()
+        if dist_alg_clean == "Ring All":
+            dist_alg_clean = "Ring all"
+
         members = []
         for i in range(START_ROW, len(user_df)):
-            if str(user_df.iloc[i, COL_MLHG]).strip() == str(mlg_name).strip():
-                num = user_df.iloc[i, COL_PHONE]
+            if str(user_df.iloc[i, 13]).strip() == str(mlg_name).strip():
+                num = user_df.iloc[i, 1]
                 if pd.notna(num):
                     members.append(f"{{'{str(num)}';'FALSE'}}")
+
         sub_rows.append(pad27([
             "CommandLink",
             customer_name,
             str(mlg_name),
             ";".join(members),
-            "" if pd.isna(dist_alg) else str(dist_alg),
-            "No",
+            dist_alg_clean,
+            "FALSE",  # per example file
         ]))
 
     # Spacer lines
     sub_rows.append(pad27([""]))
     sub_rows.append(pad27([""]))
 
-    # ---- MLHG Pilot ----
+    # ---- MLHG Pilot ---- (start at row 17 to skip header row)
     sub_rows.append(pad27(["#MLHG Pilot"]))
     sub_rows.append(pad27(["MLHG Pilot Number"]))
     sub_rows.append(pad27([
@@ -423,13 +428,19 @@ if uploaded_file:
         "EAS Password",
     ]))
 
-    for r in range(16, 27):
+    for r in range(17, 28):
         mlg_name = call_flow_ws[f"B{r}"].value
         phone_number = call_flow_ws[f"D{r}"].value
         pilot_vm = call_flow_ws[f"H{r}"].value
         if not mlg_name or not phone_number:
             continue
-        pilot_template = f"{region}_MLHG_Pilot" if str(pilot_vm).strip().lower() == "yes" else f"{region}_MLHG_Pilot_NoVM"
+
+        pilot_template = (
+            f"{region}_MLHG_Pilot"
+            if str(pilot_vm).strip().lower() == "yes"
+            else f"{region}_MLHG_Pilot_NoVM"
+        )
+
         sub_rows.append(pad27([
             "CommandLink",
             "CommandLink_vEAS_LV",
