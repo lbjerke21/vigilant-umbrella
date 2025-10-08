@@ -150,7 +150,7 @@ if uploaded_file:
         "",
         "TRUE",
         "0",
-        "TRUE",
+        "",
         "16",
         "Enhanced",
         "EAS Voicemail",
@@ -463,3 +463,4 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
+
