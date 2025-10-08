@@ -1,18 +1,18 @@
 import streamlit as st
 import pandas as pd
 import io
+import csv
 from datetime import datetime, timedelta
 from openpyxl import load_workbook
 
 st.set_page_config(page_title="UCaaS CSV Generator", page_icon="📄", layout="centered")
-
 st.title("📄 UCaaS CSV Generator")
 st.write("Upload your UCaaS Excel file and generate the two formatted CSVs automatically.")
 
 uploaded_file = st.file_uploader("Upload Excel file (.xlsx)", type=["xlsx"])
 
 
-# --- Helper functions ---
+# ---------- Helpers ----------
 
 def _norm(name: str) -> str:
     """Normalize a sheet name for case/space-insensitive matching."""
@@ -39,221 +39,324 @@ def convert_template(template_name, region):
         "UCaaS|Link Complete (HIPPA)": "Complete_HIPPA",
         "UCaaS|Link Complete (No Voicemail)": "_Complete_NoVM",
         "UCaaS|Link Complete ContactCenter Agent": "_Complete",
-        "UCaaS|Link Complete ContactCenter Manager": "_Complete"
+        "UCaaS|Link Complete ContactCenter Manager": "_Complete",
     }
-    for key, suffix in mapping.items():
-        if template_name.strip() == key:
-            return f"{region}{suffix}"
+    s = str(template_name).strip()
+    if s in mapping:
+        return f"{region}{mapping[s]}"
     return ""
 
+def mac_trusted_until_str():
+    """m/d/YYYY  11:59:59 PM (two spaces before time), 4 weeks out."""
+    dt = datetime.now() + timedelta(weeks=4)
+    # Avoid %-m/%-d for cross-platform; build manually
+    return f"{dt.month}/{dt.day}/{dt.year}  11:59:59 PM"
 
-# --- Main app logic ---
+
+# ---------- Main ----------
 
 if uploaded_file:
-    # Read workbook and normalize sheet names
     wb = load_workbook(uploaded_file, data_only=True)
     try:
-        user_details = get_sheet(wb, "User details")
-        cmdlink      = get_sheet(wb, "CommandLink")
-        call_flow    = get_sheet(wb, "Call flow")
+        user_details_ws = get_sheet(wb, "User details")
+        cmdlink_ws      = get_sheet(wb, "CommandLink")
+        call_flow_ws    = get_sheet(wb, "Call flow")
     except KeyError as e:
         st.error(str(e))
         st.stop()
 
     st.caption(f"✅ Found sheets: {wb.sheetnames}")
 
-    # Extract key metadata
-    customer_name = user_details["B3"].value
-    region = cmdlink["C4"].value  # CH or LV
-    timezone = cmdlink["C5"].value
+    # Key metadata
+    customer_name = user_details_ws["B3"].value
+    region = (cmdlink_ws["C4"].value or "").strip()  # CH or LV
+    timezone = cmdlink_ws["C5"].value
 
     st.success(f"Loaded file for **{customer_name}** (Region: {region}, Timezone: {timezone})")
 
-    # --- BG CSV ---
-    bg_rows = []
-    business_group = customer_name
+    # Read the User details sheet as a DataFrame for row-wise parsing (no header row)
+    user_df = pd.read_excel(uploaded_file, sheet_name=user_details_ws.title, header=None)
+
+    # Convenience indices (0-based) for columns on User details:
+    COL_NAME = 0       # A
+    COL_PHONE = 1      # B
+    COL_CALLING = 3    # D (Calling party number)
+    COL_EXT = 4        # E (Intercom code)
+    COL_EMAIL = 5      # F
+    COL_ACCT_TYPE = 7  # H
+    COL_DEPT = 8       # I
+    COL_TEMPLATE = 11  # L
+    COL_MAC = 12       # M
+    COL_MLHG = 13      # N
+
+    START_ROW = 8  # Excel row 9
+
+    # =========================
+    # Build BG CSV (width=12) |
+    # =========================
+    BG_COLS = 12
+    def pad12(values): return (values + [""] * max(0, BG_COLS - len(values)))[:BG_COLS]
     bg_template = f"{region} BG"
+
+    # Numbers from User details!D9+ and Call flow!D17:D27
     numbers = []
-
-    # Collect numbers from User details!D9+ and Call flow!D17:D27
-    for cell in user_details["D9":"D100"]:
+    for cell in user_details_ws["D9":"D100"]:
         for c in cell:
             if c.value:
-                numbers.append(c.value)
-    for cell in call_flow["D17":"D27"]:
+                numbers.append(str(c.value).strip())
+    for cell in call_flow_ws["D17":"D27"]:
         for c in cell:
             if c.value:
-                numbers.append(c.value)
+                numbers.append(str(c.value).strip())
 
-    departments = set()
-    for cell in user_details["I9":"I100"]:
+    # Unique departments from User details!I9+
+    departments = []
+    seen_depts = set()
+    for cell in user_details_ws["I9":"I100"]:
         for c in cell:
             if c.value:
-                departments.add(c.value)
+                d = str(c.value).strip()
+                if d and d not in seen_depts:
+                    seen_depts.add(d)
+                    departments.append(d)
 
+    bg_rows = []
+    # Top comment/header lines
+    bg_rows.append(pad12(["#"]))
+    bg_rows.append(pad12(["#"]))
+    bg_rows.append(pad12(["#"]))
+    # Business Groups
+    bg_rows.append(pad12(["#Business Groups"]))
+    bg_rows.append(pad12(["Business Group"]))
+    bg_rows.append(pad12([
+        "MetaSphere CFS",
+        "MetaSphere EAS",
+        "Business Group",
+        "Template",
+        "CFS Persistent Profile",
+        "Local CNAM name",
+        "Music On Hold Service - Subscribed",
+        "Music On Hold Service - class of service",
+        "Music On Hold Service - limit concurrent calls",
+        "Music On Hold Service - maximum concurrent calls",
+        "Music On Hold Service - Service Level",
+        "Music On Hold Service - Application Server",
+    ]))
+    bg_rows.append(pad12([
+        "CommandLink",
+        "CommandLink_vEAS_LV",
+        customer_name,
+        bg_template,
+        bg_template,
+        "",
+        "TRUE",
+        "0",
+        "TRUE",
+        "16",
+        "Enhanced",
+        "EAS Voicemail",
+    ]))
+    # Spacers
+    bg_rows.append(pad12([""]))
+    bg_rows.append(pad12([""]))
+    # Number Blocks
+    bg_rows.append(pad12(["#BG Number Blocks"]))
+    bg_rows.append(pad12(["Business Group Number Block"]))
+    bg_rows.append(pad12([
+        "MetaSphere CFS",
+        "Business Group",
+        "First Phone Number",
+        "Block size",
+        "CFS Subscriber Group",
+    ]))
     for num in numbers:
-        bg_rows.append({
-            "MetaSphere CFS": "CommandLink",
-            "MetaSphere EAS": "CommandLink_vEAS_LV",
-            "Business Group": business_group,
-            "Template": bg_template,
-            "CFS Persistent Profile": bg_template,
-            "Local CNAM name": "",
-            "Music On Hold Service - Subscribed": "TRUE",
-            "Music On Hold Service - class of service": 0,
-            "Music On Hold Service - limit concurrent calls": "TRUE",
-            "Music On Hold Service - maximum concurrent calls": 16,
-            "Music On Hold Service - Service Level": "Enhanced",
-            "Music On Hold Service - Application Server": "EAS Voicemail",
-            "First Phone number": num,
-            "Block size": 1,
-            "CFS Subscriber Group": "Standard Subscribers"
-        })
-
-    # Add departments
+        bg_rows.append(pad12([
+            "CommandLink",
+            customer_name,
+            num,
+            "1",
+            "Standard Subscribers",
+        ]))
+    # Spacers
+    bg_rows.append(pad12([""]))
+    bg_rows.append(pad12([""]))
+    bg_rows.append(pad12([""]))
+    # Department
+    bg_rows.append(pad12(["Department"]))
+    bg_rows.append(pad12([
+        "MetaSphere CFS",
+        "MetaSphere EAS",
+        "Business Group",
+        "Name",
+    ]))
     for dept in departments:
-        bg_rows.append({"Department Name": dept})
+        bg_rows.append(pad12([
+            "CommandLink",
+            "CommandLink_vEAS_LV",
+            customer_name,
+            dept,
+        ]))
 
-    bg_df = pd.DataFrame(bg_rows)
+    # Write BG CSV to memory
+    bg_buffer = io.StringIO()
+    csv.writer(bg_buffer, lineterminator="\n").writerows(bg_rows)
+    bg_filename = f"BG-NumberBlock-Departments-{customer_name}.csv"
 
-    # --- Seats CSV ---
-    seat_rows = []
-    managed_device_rows = []
-    intercom_rows = []
-    mlg_rows = []
-    mlg_pilot_rows = []
 
-    df = pd.read_excel(uploaded_file, sheet_name=get_sheet(wb, "User details").title, header=None)
-    start_row = 8  # Row 9 in Excel
-    for i in range(start_row, len(df)):
-        name = df.iloc[i, 0]
-        phone = df.iloc[i, 1]
-        ext = df.iloc[i, 4]
-        calling = df.iloc[i, 3]
-        email = df.iloc[i, 5]
-        account_type = df.iloc[i, 7]
-        department = df.iloc[i, 8]
-        template_raw = df.iloc[i, 11]
-        mac = df.iloc[i, 12]
+    # =================================
+    # Build Seats/Devices/Exts/MLHG CSV
+    # with exact sections (width=27)
+    # =================================
+    SEATS_COLS = 27
+    def pad27(values): return (values + [""] * max(0, SEATS_COLS - len(values)))[:SEATS_COLS]
 
+    # ---- Subscribers ----
+    sub_rows = []
+    # Leading # lines like the example (4 lines)
+    sub_rows.append(pad27(["#"]))
+    sub_rows.append(pad27(["#"]))
+    sub_rows.append(pad27(["#"]))
+    sub_rows.append(pad27(["#BG Subscriber"]))
+    sub_rows.append(pad27(["Subscriber"]))
+    sub_rows.append(pad27([
+        "MetaSphere CFS",
+        "MetaSphere EAS",
+        "Phone number",
+        "Template",
+        "Business Group (CFS)",
+        "Business Group (EAS)",
+        "CFS Subscriber Group",
+        "Name (CFS)",
+        "Name (EAS)",
+        "PIN (CFS)",
+        "PIN (EAS)",
+        "EAS Preferred Language",
+        "EAS Customer Group",  # present in example; we leave blank
+        "EAS Password",
+        "Business Group Administration - account type (CFS)",
+        "Business Group Administration - account type (EAS)",
+        "Line State Monitoring - Subscribed",
+        "Calling Name Delivery - local name (BG subscriber)",
+        "Account Email",
+        "Timezone (CFS)",
+        "Timezone (EAS)",
+        "Calling party number",
+        "Charge number",
+        "Calling party number for emergency calls",
+        "Department (CFS)",
+        "Department (EAS)",
+        "Calling Name Delivery - use local name for intra-BG calls only",
+    ]))
+
+    for i in range(START_ROW, len(user_df)):
+        name = user_df.iloc[i, COL_NAME]
+        phone = user_df.iloc[i, COL_PHONE]
+        ext = user_df.iloc[i, COL_EXT]
+        calling = user_df.iloc[i, COL_CALLING]
+        email = user_df.iloc[i, COL_EMAIL]
+        account_type = user_df.iloc[i, COL_ACCT_TYPE]
+        department = user_df.iloc[i, COL_DEPT]
+        template_raw = user_df.iloc[i, COL_TEMPLATE]
+
+        # Skip blank phone or reserved/none templates
         if pd.isna(phone) or str(template_raw).strip() in ["None", "Reserve Number", "None | Reserve Number"]:
             continue
 
-        template = convert_template(str(template_raw), region)
-        line_state_monitor = "" if template in [f"{region}_AA_Easy", f"{region}_AA_Premium"] else "TRUE"
-        calling_name_delivery = "" if template in [f"{region}_AA_Easy", f"{region}_AA_Premium"] else name
-        intra_bg_calls = "" if template in [f"{region}_AA_Easy", f"{region}_AA_Premium"] else "TRUE"
-        account_type_value = "Administrator" if str(account_type) in ["Location Admin", "Company Admin"] else "Normal"
+        template = convert_template(template_raw, region)
+        is_aa = template in [f"{region}_AA_Easy", f"{region}_AA_Premium"]
 
-        seat_rows.append({
-            "MetaSphere CFS": "CommandLink",
-            "MetaSphere EAS": "CommandLink_vEAS_LV",
-            "Phone Number": phone,
-            "Template": template,
-            "Business Group (CFS)": customer_name,
-            "Business Group (EAS)": customer_name,
-            "CFS Subscriber Group": "Standard Subscribers",
-            "Name (CFS)": name,
-            "Name (EAS)": name,
-            "PIN (CFS)": "",
-            "PIN (EAS)": "",
-            "EAS Preferred Language": "eng",
-            "EAS Password": "",
-            "Business Group Administration - account type (CFS)": account_type_value,
-            "Business Group Administration - account type (EAS)": account_type_value,
-            "Line State Monitoring - Subscribed": line_state_monitor,
-            "Calling Name Delivery - local name (BG subscriber)": calling_name_delivery,
-            "Account Email": email,
-            "Timezone (CFS)": timezone,
-            "Timezone (EAS)": timezone,
-            "Calling party number": calling,
-            "Charge number": phone,
-            "Calling party number for emergency calls": phone,
-            "Department (CFS)": department,
-            "Department (EAS)": department,
-            "Calling Name Delivery - use local name for intra-BG calls only": intra_bg_calls
-        })
+        line_state_monitor = "" if is_aa else "TRUE"
+        calling_name_delivery = "" if is_aa else ("" if pd.isna(name) else str(name))
+        intra_bg_calls = "" if is_aa else "TRUE"
+        acct_value = "Administrator" if str(account_type) in ["Location Admin", "Company Admin"] else "Normal"
 
-        managed_device_rows.append({
-            "MAC address": mac,
-            "Assigned to user": "TRUE",
-            "User directory number": phone,
-            "MAC trusted until": (datetime.now() + timedelta(weeks=4)).strftime("%-m/%-d/%Y  11:59:59 PM"),
-            "Device version": 2,
-            "Device model": "Determined by Endpoint Pack",
-            "Description": ""
-        })
+        sub_rows.append(pad27([
+            "CommandLink",
+            "CommandLink_vEAS_LV",
+            str(phone),
+            template,
+            customer_name,
+            customer_name,
+            "Standard Subscribers",
+            "" if pd.isna(name) else str(name),
+            "" if pd.isna(name) else str(name),
+            "",
+            "",
+            "eng",
+            "",  # EAS Customer Group left blank to mirror example
+            "",
+            acct_value,
+            acct_value,
+            line_state_monitor,
+            calling_name_delivery,
+            "" if pd.isna(email) else str(email),
+            timezone,
+            timezone,
+            "" if pd.isna(calling) else str(calling),
+            str(phone),
+            str(phone),
+            "" if pd.isna(department) else str(department),
+            "" if pd.isna(department) else str(department),
+            intra_bg_calls,
+        ]))
 
-        intercom_rows.append({
-            "First Code": ext,
-            "Last Code": ext,
-            "First Directory Number": phone
-        })
+    # Spacer after Subscribers
+    sub_rows.append(pad27([""]))
 
-    # --- MLHG Section ---
-    for i in range(16, 27):
-        mlg_name = call_flow[f"B{i}"].value
-        if not mlg_name:
+    # ---- Managed Device ----
+    sub_rows.append(pad27(["#Managed Device"]))
+    sub_rows.append(pad27(["Managed Device"]))
+    sub_rows.append(pad27([
+        "MetaSphere CFS",
+        "Business Group",
+        "MAC address",
+        "Assigned to user",
+        "User directory number",
+        "MAC trusted until",
+        "Device version",
+        "Device model",
+        "Description",
+    ]))
+
+    for i in range(START_ROW, len(user_df)):
+        phone = user_df.iloc[i, COL_PHONE]
+        mac = user_df.iloc[i, COL_MAC]
+        if pd.isna(phone) or pd.isna(mac) or str(mac).strip() == "":
             continue
-        members = []
-        dist_alg = call_flow[f"C{i}"].value
-        phone_number = call_flow[f"D{i}"].value
-        pilot_vm = call_flow[f"H{i}"].value
-        if not phone_number:
+        sub_rows.append(pad27([
+            "CommandLink",
+            customer_name,
+            str(mac),
+            "TRUE",
+            str(phone),
+            mac_trusted_until_str(),
+            "2",
+            "Determined by Endpoint Pack",
+            "",
+        ]))
+
+    # Spacer
+    sub_rows.append(pad27([""]))
+    sub_rows.append(pad27([""]))
+    sub_rows.append(pad27([""]))
+
+    # ---- Intercom Code Range ----
+    sub_rows.append(pad27(["#Intercom Code Range"]))
+    sub_rows.append(pad27(["Intercom Code Range"]))
+    sub_rows.append(pad27([
+        "MetaSphere CFS",
+        "MetaSphere EAS",
+        "Business Group",
+        "First Code",
+        "Last Code",
+        "First Directory Number",
+    ]))
+
+    for i in range(START_ROW, len(user_df)):
+        phone = user_df.iloc[i, COL_PHONE]
+        ext = user_df.iloc[i, COL_EXT]
+        if pd.isna(phone) or pd.isna(ext) or str(ext).strip() == "":
             continue
-        mlg_users = []
-        for j in range(start_row, len(df)):
-            if str(df.iloc[j, 13]) == str(mlg_name):
-                num = df.iloc[j, 1]
-                if num:
-                    mlg_users.append(f"{{'{num}';'FALSE'}}")
-        member_field = ";".join(mlg_users)
-        mlg_rows.append({
-            "MLHG Name": mlg_name,
-            "Members;Directory number;Login/logout supported": member_field,
-            "Distribution algorithm": dist_alg,
-            "Hunt on no-answer": "No"
-        })
-        pilot_template = f"{region}_MLHG_Pilot" if str(pilot_vm).strip().lower() == "yes" else f"{region}_MLHG_Pilot_NoVM"
-        mlg_pilot_rows.append({
-            "Phone number": phone_number,
-            "Template": pilot_template,
-            "Name (EAS)": f"{mlg_name} Pilot",
-            "Name (CFS)": f"{mlg_name} Pilot",
-            "PIN (EAS)": "*",
-            "EAS Password": "*"
-        })
-
-    seats_df = pd.concat([
-        pd.DataFrame(seat_rows),
-        pd.DataFrame(managed_device_rows),
-        pd.DataFrame(intercom_rows),
-        pd.DataFrame(mlg_rows),
-        pd.DataFrame(mlg_pilot_rows)
-    ], axis=1)
-
-    # Prepare CSVs in memory
-    bg_buffer = io.StringIO()
-    seat_buffer = io.StringIO()
-    bg_df.to_csv(bg_buffer, index=False)
-    seats_df.to_csv(seat_buffer, index=False)
-
-    bg_filename = f"BG-NumberBlock-Departments-{customer_name}.csv"
-    seat_filename = f"Seats-Devices-Exts-MLHG-{customer_name}.csv"
-
-    st.download_button(
-        label=f"⬇️ Download {bg_filename}",
-        data=bg_buffer.getvalue(),
-        file_name=bg_filename,
-        mime="text/csv"
-    )
-
-    st.download_button(
-        label=f"⬇️ Download {seat_filename}",
-        data=seat_buffer.getvalue(),
-        file_name=seat_filename,
-        mime="text/csv"
-    )
-
-else:
-    st.info("Please upload an Excel file to begin.")
+        sub_rows.append(pad27([
+            "CommandLink",
+            "CommandLink_vEAS_LV"
