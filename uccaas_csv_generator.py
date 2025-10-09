@@ -48,13 +48,13 @@ def convert_template(template_name, region):
 
 from datetime import datetime, timedelta
 
-def mac_trusted_until_str(force_text=True):
+def mac_trusted_until_str():
     # 4 weeks out at 11:59:59 pm, formatted m/d/yy h:mm:ss am
     dt = (datetime.now() + timedelta(weeks=4)).replace(hour=23, minute=59, second=59, microsecond=0)
     h12 = dt.hour % 12 or 12
     ampm = "am" if dt.hour < 12 else "pm"
-    s = f"{dt.month}/{dt.day}/{dt.strftime('%y')} {h12}:{dt.minute:02d}:{dt.second:02d} {ampm}"
-    return f"'{s}" if force_text else s   # leading apostrophe → Excel keeps it as text
+    yy = dt.strftime("%y")
+    return f"{dt.month}/{dt.day}/{yy} {h12}:{dt.minute:02d}:{dt.second:02d} {ampm}"
 
 
 # ---------- Main ----------
@@ -482,6 +482,7 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
+
 
 
 
