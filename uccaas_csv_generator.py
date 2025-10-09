@@ -208,7 +208,7 @@ if uploaded_file:
     # Build Seats/Devices/Exts/MLHG CSV
     # with exact sections (width=27)
     # =================================
-    SEATS_COLS = 27
+    SEATS_COLS = 28
     def pad27(values): return (values + [""] * max(0, SEATS_COLS - len(values)))[:SEATS_COLS]
 
     # ---- Subscribers ----
@@ -475,4 +475,5 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
+
 
