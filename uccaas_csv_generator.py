@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 
 st.set_page_config(page_title="CTI Sheet -> Meta Import Files", page_icon="📄", layout="centered")
 def apply_style(
-    page_bg="#0b1220",
+    page_bg="#FFFFFF",
     surface_bg="#111827",
     text="#e5e7eb",
     accent="#0ea5e9",
@@ -521,6 +521,7 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
+
 
 
 
