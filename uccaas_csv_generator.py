@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 
 st.set_page_config(page_title="CTI Sheet -> Meta Import Files", page_icon="📄", layout="centered")
 st.title("📄 CTI Sheet -> Meta Import Files")
-st.write("Upload your UCaaS Excel file and generate the two formatted CSVs automatically.")
+st.write("Upload your CTI Excel file and generate two formatted  Meta Import CSVs.")
 
 uploaded_file = st.file_uploader("Upload Excel file (.xlsx)", type=["xlsx"])
 
@@ -201,7 +201,7 @@ if uploaded_file:
     # Write BG CSV to memory
     bg_buffer = io.StringIO()
     csv.writer(bg_buffer, lineterminator="\n").writerows(bg_rows)
-    bg_filename = f"BG-NumberBlock-Departments-{customer_name}.csv"
+    bg_filename = f"Step1-BG-NumberBlock-Departments-{customer_name}.csv"
 
 
     # =================================
@@ -459,7 +459,7 @@ if uploaded_file:
     # Write Seats CSV to memory
     seats_buffer = io.StringIO()
     csv.writer(seats_buffer, lineterminator="\n").writerows(sub_rows)
-    seats_filename = f"Seats-Devices-Exts-MLHG-{customer_name}.csv"
+    seats_filename = f"Step2-Seats-Devices-Exts-MLHG-{customer_name}.csv"
 
     # ---------- Downloads ----------
     st.download_button(
@@ -477,6 +477,7 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
+
 
 
 
