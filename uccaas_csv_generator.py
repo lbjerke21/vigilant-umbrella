@@ -426,6 +426,7 @@ if uploaded_file:
         "Name (CFS)",
         "PIN (EAS)",
         "EAS Password",
+        "EAS Customer Group",
     ]))
 
     for r in range(17, 28):
@@ -475,5 +476,6 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
+
 
 
