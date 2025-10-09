@@ -5,8 +5,8 @@ import csv
 from datetime import datetime, timedelta
 from openpyxl import load_workbook
 
-st.set_page_config(page_title="Customer CTI Sheet -> Meta Import Files", page_icon="📄", layout="centered")
-st.title("📄 Customer CTI Sheet -> Meta Import Files")
+st.set_page_config(page_title="CTI Sheet -> Meta Import Files", page_icon="📄", layout="centered")
+st.title("📄 CTI Sheet -> Meta Import Files")
 st.write("Upload your UCaaS Excel file and generate the two formatted CSVs automatically.")
 
 uploaded_file = st.file_uploader("Upload Excel file (.xlsx)", type=["xlsx"])
@@ -477,6 +477,7 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
+
 
 
 
