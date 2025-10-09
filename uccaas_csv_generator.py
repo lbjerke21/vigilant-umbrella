@@ -201,7 +201,7 @@ if uploaded_file:
     # Write BG CSV to memory
     bg_buffer = io.StringIO()
     csv.writer(bg_buffer, lineterminator="\n").writerows(bg_rows)
-    bg_filename = f"Step1-BG-NumberBlock-Departments-{customer_name}.csv"
+    bg_filename = f"Step1-{customer_name}-BG-NumberBlock-Departments.csv"
 
 
     # =================================
@@ -459,7 +459,7 @@ if uploaded_file:
     # Write Seats CSV to memory
     seats_buffer = io.StringIO()
     csv.writer(seats_buffer, lineterminator="\n").writerows(sub_rows)
-    seats_filename = f"Step2-Seats-Devices-Exts-MLHG-{customer_name}.csv"
+    seats_filename = f"Step2-{customer_name}-Seats-Devices-Exts-MLHG.csv"
 
     # ---------- Downloads ----------
     st.download_button(
@@ -477,6 +477,7 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
+
 
 
 
