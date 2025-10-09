@@ -47,9 +47,12 @@ def convert_template(template_name, region):
     return ""
 
 def mac_trusted_until_str():
-    """m/d/YYYY  11:59:59 PM (two spaces before time), 4 weeks out."""
-    dt = datetime.now() + timedelta(weeks=4)
-    return f"{dt.month}/{dt.day}/{dt.year}  11:59:59 PM"
+    # 4 weeks out, exactly 11:59:59 pm, formatted m/d/yy h:mm:ss am
+    dt = (datetime.now() + timedelta(weeks=4)).replace(hour=23, minute=59, second=59, microsecond=0)
+    h12 = dt.hour % 12 or 12
+    ampm = "am" if dt.hour < 12 else "pm"
+    yy = dt.strftime("%y")
+    return f"{dt.month}/{dt.day}/{yy} {h12}:{dt.minute:02d}:{dt.second:02d} {ampm}"
 
 
 # ---------- Main ----------
@@ -477,6 +480,7 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
+
 
 
 
