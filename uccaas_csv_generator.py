@@ -6,6 +6,50 @@ from datetime import datetime, timedelta
 from openpyxl import load_workbook
 
 st.set_page_config(page_title="CTI Sheet -> Meta Import Files", page_icon="📄", layout="centered")
+def apply_style(
+    page_bg="#0b1220",
+    surface_bg="#111827",
+    text="#e5e7eb",
+    accent="#0ea5e9",
+):
+    css = f"""
+    <style>
+    /* Page background */
+    [data-testid="stAppViewContainer"] {{
+        background: {page_bg} !important;
+        color: {text} !important;
+    }}
+    /* Header bar (make transparent) */
+    [data-testid="stHeader"] {{ background: transparent !important; }}
+    /* Sidebar background */
+    [data-testid="stSidebar"] > div:first-child {{
+        background: {surface_bg} !important;
+        color: {text} !important;
+    }}
+    /* Main content container width + text color */
+    .block-container {{
+        color: {text} !important;
+    }}
+    /* Links */
+    a, .stMarkdown a {{ color: {accent} !important; }}
+    /* Buttons */
+    div[data-testid="stDownloadButton"] > button,
+    button[kind="primary"],
+    .stButton>button {{
+        background: {accent} !important;
+        border-color: {accent} !important;
+        color: white !important;
+        border-radius: 10px !important;
+        font-weight: 600 !important;
+    }}
+    /* Inputs (file uploader, text inputs) */
+    .stTextInput input, .stTextArea textarea, .stSelectbox div, .stFileUploader label div {{
+        color: {text} !important;
+    }}
+    </style>
+    """
+    import streamlit as st
+    st.markdown(css, unsafe_allow_html=True)
 st.title("📄 CTI Sheet -> Meta Import Files")
 st.write("Upload your CTI Excel file and generate two formatted  Meta Import CSVs.")
 
@@ -477,6 +521,7 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
+
 
 
 
