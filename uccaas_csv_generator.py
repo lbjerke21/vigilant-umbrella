@@ -453,6 +453,7 @@ if uploaded_file:
             f"{mlg_name} Pilot",
             "*",
             "*",
+            "defaultGroup",
         ]))
 
     # Write Seats CSV to memory
@@ -476,6 +477,7 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
+
 
 
 
