@@ -7,10 +7,9 @@ from openpyxl import load_workbook
 
 st.set_page_config(page_title="CTI Sheet -> Meta Import Files", page_icon="📄", layout="centered")
 st.title("📄 CTI Sheet -> Meta Import Files")
-st.write("Upload your CTI Excel file and generate two formatted  Meta Import CSVs.")
+st.write("Upload your CTI Excel file and generate two formatted Meta Import CSVs.")
 
 uploaded_file = st.file_uploader("Upload Excel file (.xlsx)", type=["xlsx"])
-
 
 # ---------- Helpers ----------
 
@@ -46,16 +45,13 @@ def convert_template(template_name, region):
         return f"{region}{mapping[s]}"
     return ""
 
-from datetime import datetime, timedelta
-
 def mac_trusted_until_str():
-    # 4 weeks out at 11:59:59 pm, formatted m/d/yy h:mm:ss am
+    """4 weeks out at 11:59:59 pm, formatted m/d/yy h:mm:ss am"""
     dt = (datetime.now() + timedelta(weeks=4)).replace(hour=23, minute=59, second=59, microsecond=0)
     h12 = dt.hour % 12 or 12
     ampm = "am" if dt.hour < 12 else "pm"
     yy = dt.strftime("%y")
     return f"{dt.month}/{dt.day}/{yy} {h12}:{dt.minute:02d}:{dt.second:02d} {ampm}"
-
 
 # ---------- Main ----------
 
@@ -63,7 +59,7 @@ if uploaded_file:
     wb = load_workbook(uploaded_file, data_only=True)
     try:
         user_details_ws = get_sheet(wb, "User details")
-        cmdlink_ws      = get_sheet(wb, "CommandLink")
+        eng_ws          = get_sheet(wb, "Engineering")     # renamed from CommandLink
         call_flow_ws    = get_sheet(wb, "Call flow")
     except KeyError as e:
         st.error(str(e))
@@ -73,10 +69,9 @@ if uploaded_file:
 
     # Key metadata
     customer_name = user_details_ws["B3"].value
-    region = (cmdlink_ws["C4"].value or "").strip()  # CH or LV
-    timezone = cmdlink_ws["C5"].value
+    region = (eng_ws["C4"].value or "").strip()  # CH or LV (still on the Engineering tab)
 
-    st.success(f"Loaded file for **{customer_name}** (Region: {region}, Timezone: {timezone})")
+    st.success(f"Loaded file for **{customer_name}** (Region: {region})")
 
     # Read the User details sheet as a DataFrame for row-wise parsing (no header row)
     user_df = pd.read_excel(uploaded_file, sheet_name=user_details_ws.title, header=None)
@@ -89,9 +84,11 @@ if uploaded_file:
     COL_EMAIL = 5      # F
     COL_ACCT_TYPE = 7  # H
     COL_DEPT = 8       # I
-    COL_TEMPLATE = 11  # L
-    COL_MAC = 12       # M
-    COL_MLHG = 13      # N
+    COL_TZ = 9         # J  <-- NEW: per-user timezone
+    # Because a new J column was inserted, columns to the right shift by +1:
+    COL_TEMPLATE = 12  # was 11 (L) → now 12 (M)
+    COL_MAC = 13       # was 12 (M) → now 13 (N)
+    COL_MLHG = 14      # was 13 (N) → now 14 (O)
 
     START_ROW = 8  # Excel row 9
 
@@ -104,7 +101,7 @@ if uploaded_file:
 
     # Numbers from User details!B9+ (phones) and Call flow!D17:D27 (pilot numbers)
     numbers = []
-    for cell in user_details_ws["B9":"B100"]:  # fixed to B9
+    for cell in user_details_ws["B9":"B100"]:
         for c in cell:
             if c.value:
                 numbers.append(str(c.value).strip())
@@ -112,19 +109,16 @@ if uploaded_file:
         for c in cell:
             if c.value:
                 numbers.append(str(c.value).strip())
-    # de-dupe while preserving order
-    numbers = [n for n in dict.fromkeys(numbers) if n]
+    numbers = [n for n in dict.fromkeys(numbers) if n]  # de-dupe, preserve order
 
     # Unique departments from User details!I9+
-    departments = []
-    seen_depts = set()
+    departments, seen_depts = [], set()
     for cell in user_details_ws["I9":"I100"]:
         for c in cell:
             if c.value:
                 d = str(c.value).strip()
                 if d and d not in seen_depts:
-                    seen_depts.add(d)
-                    departments.append(d)
+                    seen_depts.add(d); departments.append(d)
 
     bg_rows = []
     # Top comment/header lines
@@ -157,7 +151,7 @@ if uploaded_file:
         "",
         "TRUE",
         "0",
-        "",      # limit concurrent calls now blank
+        "",      # limit concurrent calls is blank
         "16",
         "Enhanced",
         "EAS Voicemail",
@@ -208,15 +202,12 @@ if uploaded_file:
     csv.writer(bg_buffer, lineterminator="\n").writerows(bg_rows)
     bg_filename = f"Step1-{customer_name}-BG-NumberBlock-Departments.csv"
 
-
     # =================================
-    # Build Seats/Devices/Exts/MLHG CSV
-    # with exact sections (width=27)
+    # Seats/Devices/Exts/MLHG CSV (28)
     # =================================
     SEATS_COLS = 28
     def pad27(values): return (values + [""] * max(0, SEATS_COLS - len(values)))[:SEATS_COLS]
 
-    # ---- Subscribers ----
     sub_rows = []
     sub_rows.append(pad27(["#"]))
     sub_rows.append(pad27(["#"]))
@@ -254,25 +245,28 @@ if uploaded_file:
     ]))
 
     for i in range(START_ROW, len(user_df)):
-        name = user_df.iloc[i, 0]
-        phone = user_df.iloc[i, 1]
-        calling = user_df.iloc[i, 3]
-        email = user_df.iloc[i, 5]
-        account_type = user_df.iloc[i, 7]
-        department = user_df.iloc[i, 8]
-        template_raw = user_df.iloc[i, 11]
+        name        = user_df.iloc[i, COL_NAME]
+        phone       = user_df.iloc[i, COL_PHONE]
+        calling     = user_df.iloc[i, COL_CALLING]
+        email       = user_df.iloc[i, COL_EMAIL]
+        account_type= user_df.iloc[i, COL_ACCT_TYPE]
+        department  = user_df.iloc[i, COL_DEPT]
+        tz_val      = user_df.iloc[i, COL_TZ]               # NEW per-user timezone from J
+        template_raw= user_df.iloc[i, COL_TEMPLATE]
 
-        # Skip blank phone or reserved/none templates
         if pd.isna(phone) or str(template_raw).strip() in ["None", "Reserve Number", "None | Reserve Number"]:
             continue
 
         template = convert_template(template_raw, region)
         is_aa = template in [f"{region}_AA_Easy", f"{region}_AA_Premium"]
 
-        line_state_monitor = "" if is_aa else "TRUE"
-        calling_name_delivery = "" if is_aa else ("" if pd.isna(name) else str(name))
-        intra_bg_calls = "" if is_aa else "TRUE"
-        acct_value = "Administrator" if str(account_type) in ["Location Admin", "Company Admin"] else "Normal"
+        line_state_monitor   = "" if is_aa else "TRUE"
+        calling_name_delivery= "" if is_aa else ("" if pd.isna(name) else str(name))
+        intra_bg_calls       = "" if is_aa else "TRUE"
+        acct_value           = "Administrator" if str(account_type) in ["Location Admin", "Company Admin"] else "Normal"
+
+        tz_cfs = "" if pd.isna(tz_val) else str(tz_val)
+        tz_eas = tz_cfs
 
         sub_rows.append(pad27([
             "CommandLink",
@@ -294,8 +288,8 @@ if uploaded_file:
             line_state_monitor,
             calling_name_delivery,
             "" if pd.isna(email) else str(email),
-            timezone,
-            timezone,
+            tz_cfs,  # from J
+            tz_eas,  # from J
             "" if pd.isna(calling) else str(calling),
             str(phone),
             str(phone),
@@ -323,8 +317,8 @@ if uploaded_file:
     ]))
 
     for i in range(START_ROW, len(user_df)):
-        phone = user_df.iloc[i, 1]
-        mac = user_df.iloc[i, 12]
+        phone = user_df.iloc[i, COL_PHONE]
+        mac   = user_df.iloc[i, COL_MAC]
         if pd.isna(phone) or pd.isna(mac) or str(mac).strip() == "":
             continue
         sub_rows.append(pad27([
@@ -357,8 +351,8 @@ if uploaded_file:
     ]))
 
     for i in range(START_ROW, len(user_df)):
-        phone = user_df.iloc[i, 1]
-        ext = user_df.iloc[i, 4]
+        phone = user_df.iloc[i, COL_PHONE]
+        ext   = user_df.iloc[i, COL_EXT]
         if pd.isna(phone) or pd.isna(ext) or str(ext).strip() == "":
             continue
         sub_rows.append(pad27([
@@ -376,7 +370,7 @@ if uploaded_file:
     sub_rows.append(pad27([""]))
     sub_rows.append(pad27([""]))
 
-    # ---- MLHGs ---- (start at row 17, Hunt on no-answer=FALSE, normalize Ring All)
+    # ---- MLHGs ----
     sub_rows.append(pad27(["#MLHGs"]))
     sub_rows.append(pad27(["MLHG"]))
     sub_rows.append(pad27([
@@ -388,7 +382,7 @@ if uploaded_file:
         "Hunt on no-answer",
     ]))
 
-    for r in range(17, 28):  # Excel rows 17..27 (skip header on row 16)
+    for r in range(17, 28):  # Excel rows 17..27
         mlg_name = call_flow_ws[f"B{r}"].value
         if not mlg_name:
             continue
@@ -399,8 +393,8 @@ if uploaded_file:
 
         members = []
         for i in range(START_ROW, len(user_df)):
-            if str(user_df.iloc[i, 13]).strip() == str(mlg_name).strip():
-                num = user_df.iloc[i, 1]
+            if str(user_df.iloc[i, COL_MLHG]).strip() == str(mlg_name).strip():
+                num = user_df.iloc[i, COL_PHONE]
                 if pd.notna(num):
                     members.append(f"{{'{str(num)}';'FALSE'}}")
 
@@ -410,14 +404,14 @@ if uploaded_file:
             str(mlg_name),
             ";".join(members),
             dist_alg_clean,
-            "FALSE",  # per example file
+            "FALSE",
         ]))
 
     # Spacer lines
     sub_rows.append(pad27([""]))
     sub_rows.append(pad27([""]))
 
-    # ---- MLHG Pilot ---- (start at row 17 to skip header row)
+    # ---- MLHG Pilot ----
     sub_rows.append(pad27(["#MLHG Pilot"]))
     sub_rows.append(pad27(["MLHG Pilot Number"]))
     sub_rows.append(pad27([
@@ -435,17 +429,13 @@ if uploaded_file:
     ]))
 
     for r in range(17, 28):
-        mlg_name = call_flow_ws[f"B{r}"].value
+        mlg_name     = call_flow_ws[f"B{r}"].value
         phone_number = call_flow_ws[f"D{r}"].value
-        pilot_vm = call_flow_ws[f"H{r}"].value
+        pilot_vm     = call_flow_ws[f"H{r}"].value
         if not mlg_name or not phone_number:
             continue
 
-        pilot_template = (
-            f"{region}_MLHG_Pilot"
-            if str(pilot_vm).strip().lower() == "yes"
-            else f"{region}_MLHG_Pilot_NoVM"
-        )
+        pilot_template = f"{region}_MLHG_Pilot" if str(pilot_vm).strip().lower() == "yes" else f"{region}_MLHG_Pilot_NoVM"
 
         sub_rows.append(pad27([
             "CommandLink",
@@ -482,18 +472,3 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
