@@ -41,7 +41,7 @@ def convert_template(template_name, region):
     return f"{region}{mapping[s]}" if s in mapping else ""
 
 def mac_trusted_until_str():
-    """4 weeks out at 11:59:59 pm, formatted m/d/yy h:mm:ss am"""
+    """4 weeks out at 11:59:59 pm, formatted m/d/yy h:mm:ss am (no leading apostrophe)."""
     dt = (datetime.now() + timedelta(weeks=4)).replace(hour=23, minute=59, second=59, microsecond=0)
     h12 = dt.hour % 12 or 12
     ampm = "am" if dt.hour < 12 else "pm"
@@ -51,7 +51,10 @@ def mac_trusted_until_str():
 # ---------- Main ----------
 
 if uploaded_file:
-    wb = load_workbook(uploaded_file, data_only=True)
+    # Read bytes once; reuse for openpyxl + pandas
+    file_bytes = uploaded_file.read()
+    wb = load_workbook(io.BytesIO(file_bytes), data_only=True)
+
     try:
         user_details_ws = get_sheet(wb, "User details")
         eng_ws          = get_sheet(wb, "Engineering")
@@ -66,7 +69,7 @@ if uploaded_file:
 
     st.success(f"Loaded file for **{customer_name}** (Region: {region})")
 
-    user_df = pd.read_excel(uploaded_file, sheet_name=user_details_ws.title, header=None)
+    user_df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=user_details_ws.title, header=None)
 
     # Column indexes (0-based)
     COL_NAME = 0       # A
@@ -77,7 +80,8 @@ if uploaded_file:
     COL_ACCT_TYPE = 7  # H
     COL_DEPT = 8       # I
     COL_TZ = 9         # J (per-user timezone)
-    COL_TEMPLATE = 12  # M (shifted due to new J)
+    # J inserted -> shift right of J by +1:
+    COL_TEMPLATE = 12  # M
     COL_MAC = 13       # N
     COL_MLHG = 14      # O
 
@@ -99,7 +103,7 @@ if uploaded_file:
         for c in cell:
             if c.value:
                 numbers.append(str(c.value).strip())
-    numbers = [n for n in dict.fromkeys(numbers) if n]
+    numbers = [n for n in dict.fromkeys(numbers) if n]  # de-dupe, preserve order
 
     departments, seen_depts = [], set()
     for cell in user_details_ws["I9":"I100"]:
@@ -165,9 +169,143 @@ if uploaded_file:
     ]))
 
     for i in range(START_ROW, len(user_df)):
-        name        = user_df.iloc[i, COL_NAME]
-        phone       = user_df.iloc[i, COL_PHONE]
-        calling     = user_df.iloc[i, COL_CALLING]
-        email       = user_df.iloc[i, COL_EMAIL]
-        account_type= user_df.iloc[i, COL_ACCT_TYPE]
-        department  = user_df.il_
+        name         = user_df.iloc[i, COL_NAME]
+        phone        = user_df.iloc[i, COL_PHONE]
+        calling      = user_df.iloc[i, COL_CALLING]
+        email        = user_df.iloc[i, COL_EMAIL]
+        account_type = user_df.iloc[i, COL_ACCT_TYPE]
+        department   = user_df.iloc[i, COL_DEPT]
+        tz_val       = user_df.iloc[i, COL_TZ]
+        template_raw = user_df.iloc[i, COL_TEMPLATE]
+
+        if pd.isna(phone) or str(template_raw).strip() in ["None", "Reserve Number", "None | Reserve Number"]:
+            continue
+
+        template = convert_template(template_raw, region)
+        is_aa = template in [f"{region}_AA_Easy", f"{region}_AA_Premium"]
+
+        line_state_monitor     = "" if is_aa else "TRUE"
+        calling_name_delivery  = "" if is_aa else ("" if pd.isna(name) else str(name))
+        intra_bg_calls         = "" if is_aa else "TRUE"
+        acct_value             = "Administrator" if str(account_type) in ["Location Admin","Company Admin"] else "Normal"
+
+        tz_cfs = "" if pd.isna(tz_val) else str(tz_val)
+        tz_eas = tz_cfs
+
+        sub_rows.append(pad27([
+            "CommandLink","CommandLink_vEAS_LV",
+            str(phone),template,customer_name,customer_name,
+            "Standard Subscribers",
+            "" if pd.isna(name) else str(name),
+            "" if pd.isna(name) else str(name),
+            "","",
+            "eng","defaultGroup","",
+            acct_value,acct_value,
+            line_state_monitor,calling_name_delivery,
+            "" if pd.isna(email) else str(email),
+            tz_cfs,tz_eas,
+            "" if pd.isna(calling) else str(calling),
+            str(phone),str(phone),
+            "" if pd.isna(department) else str(department),
+            "" if pd.isna(department) else str(department),
+            intra_bg_calls,
+        ]))
+
+    sub_rows.append(pad27([""]))  # spacer
+
+    # Managed Device
+    sub_rows.append(pad27(["#Managed Device"]))
+    sub_rows.append(pad27(["Managed Device"]))
+    sub_rows.append(pad27([
+        "MetaSphere CFS","Business Group","MAC address","Assigned to user","User directory number",
+        "MAC trusted until","Device version","Device model","Description",
+    ]))
+    for i in range(START_ROW, len(user_df)):
+        phone = user_df.iloc[i, COL_PHONE]
+        mac   = user_df.iloc[i, COL_MAC]
+        if pd.isna(phone) or pd.isna(mac) or str(mac).strip() == "":
+            continue
+        sub_rows.append(pad27([
+            "CommandLink",customer_name,str(mac),"TRUE",str(phone),
+            mac_trusted_until_str(),"2","Determined by Endpoint Pack","",
+        ]))
+
+    # Intercom Code Range
+    sub_rows.append(pad27([""])); sub_rows.append(pad27([""])); sub_rows.append(pad27([""]))
+    sub_rows.append(pad27(["#Intercom Code Range"]))
+    sub_rows.append(pad27(["Intercom Code Range"]))
+    sub_rows.append(pad27([
+        "MetaSphere CFS","MetaSphere EAS","Business Group","First Code","Last Code","First Directory Number",
+    ]))
+    for i in range(START_ROW, len(user_df)):
+        phone = user_df.iloc[i, COL_PHONE]
+        ext   = user_df.iloc[i, COL_EXT]
+        if pd.isna(phone) or pd.isna(ext) or str(ext).strip() == "":
+            continue
+        sub_rows.append(pad27([
+            "CommandLink","CommandLink_vEAS_LV",customer_name,str(ext),str(ext),str(phone),
+        ]))
+
+    # MLHGs
+    sub_rows.append(pad27([""])); sub_rows.append(pad27([""])); sub_rows.append(pad27([""])); sub_rows.append(pad27([""]))
+    sub_rows.append(pad27(["#MLHGs"]))
+    sub_rows.append(pad27(["MLHG"]))
+    sub_rows.append(pad27([
+        "MetaSphere CFS","Business Group","MLHG Name",
+        "Members;Directory number;Login/logout supported","Distribution algorithm","Hunt on no-answer",
+    ]))
+    for r in range(17, 28):
+        mlg_name = call_flow_ws[f"B{r}"].value
+        if not mlg_name:
+            continue
+        dist_alg = call_flow_ws[f"C{r}"].value
+        dist_alg_clean = "" if pd.isna(dist_alg) else str(dist_alg).strip()
+        if dist_alg_clean == "Ring All":
+            dist_alg_clean = "Ring all"
+        members = []
+        for i in range(START_ROW, len(user_df)):
+            if str(user_df.iloc[i, COL_MLHG]).strip() == str(mlg_name).strip():
+                num = user_df.iloc[i, COL_PHONE]
+                if pd.notna(num):
+                    members.append(f"{{'{str(num)}';'FALSE'}}")
+        sub_rows.append(pad27([
+            "CommandLink",customer_name,str(mlg_name),";".join(members),dist_alg_clean,"FALSE",
+        ]))
+
+    # MLHG Pilot
+    sub_rows.append(pad27([""])); sub_rows.append(pad27([""]))
+    sub_rows.append(pad27(["#MLHG Pilot"]))
+    sub_rows.append(pad27(["MLHG Pilot Number"]))
+    sub_rows.append(pad27([
+        "MetaSphere CFS","MetaSphere EAS","Business Group (CFS)","MLHG Name","Phone number",
+        "Template","Name (EAS)","Name (CFS)","PIN (EAS)","EAS Password","EAS Customer Group",
+    ]))
+    for r in range(17, 28):
+        mlg_name     = call_flow_ws[f"B{r}"].value
+        phone_number = call_flow_ws[f"D{r}"].value
+        pilot_vm     = call_flow_ws[f"H{r}"].value
+        if not mlg_name or not phone_number:
+            continue
+        pilot_template = f"{region}_MLHG_Pilot" if str(pilot_vm).strip().lower() == "yes" else f"{region}_MLHG_Pilot_NoVM"
+        sub_rows.append(pad27([
+            "CommandLink","CommandLink_vEAS_LV",customer_name,str(mlg_name),str(phone_number),
+            pilot_template,f"{mlg_name} Pilot",f"{mlg_name} Pilot","*","*","defaultGroup",
+        ]))
+
+    # ---------- Single combined CSV (BG on top of Seats) ----------
+    combined_buffer = io.StringIO()
+    writer = csv.writer(combined_buffer, lineterminator="\n")
+    writer.writerows(bg_rows)
+    writer.writerow([])  # optional blank separator line
+    writer.writerows(sub_rows)
+
+    combined_filename = f"{customer_name}-Meta-Import-Combined.csv"
+    st.download_button(
+        label=f"⬇️ Download {combined_filename}",
+        data=combined_buffer.getvalue(),
+        file_name=combined_filename,
+        mime="text/csv",
+    )
+
+else:
+    st.info("Please upload an Excel file to begin.")
