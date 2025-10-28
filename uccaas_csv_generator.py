@@ -67,6 +67,11 @@ if uploaded_file:
     customer_name = user_details_ws["B3"].value
     region = (eng_ws["C4"].value or "").strip()  # CH or LV
 
+    # NEW: Line Class Codes from Engineering
+    line_class_code_1 = eng_ws["C17"].value or ""
+    line_class_code_2 = eng_ws["C18"].value or ""
+    line_class_code_3 = eng_ws["C12"].value or ""
+
     st.success(f"Loaded file for **{customer_name}** (Region: {region})")
 
     user_df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=user_details_ws.title, header=None)
@@ -88,10 +93,10 @@ if uploaded_file:
     START_ROW = 8  # Excel row 9
 
     # =========================
-    # Build BG (width=12)
+    # Build BG (width=15)  <-- expanded from 12
     # =========================
-    BG_COLS = 12
-    def pad12(values): return (values + [""] * max(0, BG_COLS - len(values)))[:BG_COLS]
+    BG_COLS = 15
+    def pad_bg(values): return (values + [""] * max(0, BG_COLS - len(values)))[:BG_COLS]
     bg_template = f"{region} BG"
 
     numbers = []
@@ -114,37 +119,41 @@ if uploaded_file:
                     seen_depts.add(d); departments.append(d)
 
     bg_rows = []
-    bg_rows.append(pad12(["#"]))
-    bg_rows.append(pad12(["#"]))
-    bg_rows.append(pad12(["#"]))
-    bg_rows.append(pad12(["#Business Groups"]))
-    bg_rows.append(pad12(["Business Group"]))
-    bg_rows.append(pad12([
+    bg_rows.append(pad_bg(["#"]))
+    bg_rows.append(pad_bg(["#"]))
+    bg_rows.append(pad_bg(["#"]))
+    bg_rows.append(pad_bg(["#Business Groups"]))
+    bg_rows.append(pad_bg(["Business Group"]))
+    bg_rows.append(pad_bg([
         "MetaSphere CFS","MetaSphere EAS","Business Group","Template","CFS Persistent Profile",
         "Local CNAM name","Music On Hold Service - Subscribed","Music On Hold Service - class of service",
         "Music On Hold Service - limit concurrent calls","Music On Hold Service - maximum concurrent calls",
         "Music On Hold Service - Service Level","Music On Hold Service - Application Server",
+        # NEW columns:
+        "Line Class Code 1","Line Class Code 2","Line Class Code 3",
     ]))
-    bg_rows.append(pad12([
+    bg_rows.append(pad_bg([
         "CommandLink","CommandLink_vEAS_LV",customer_name,bg_template,bg_template,"",
         "TRUE","0","", "16","Enhanced","EAS Voicemail",
+        # NEW values from Engineering:
+        str(line_class_code_1), str(line_class_code_2), str(line_class_code_3),
     ]))
-    bg_rows.append(pad12([""]))
-    bg_rows.append(pad12([""]))
-    bg_rows.append(pad12(["#BG Number Blocks"]))
-    bg_rows.append(pad12(["Business Group Number Block"]))
-    bg_rows.append(pad12([
+    bg_rows.append(pad_bg([""]))
+    bg_rows.append(pad_bg([""]))
+    bg_rows.append(pad_bg(["#BG Number Blocks"]))
+    bg_rows.append(pad_bg(["Business Group Number Block"]))
+    bg_rows.append(pad_bg([
         "MetaSphere CFS","Business Group","First Phone Number","Block size","CFS Subscriber Group",
     ]))
     for num in numbers:
-        bg_rows.append(pad12(["CommandLink",customer_name,num,"1","Standard Subscribers"]))
-    bg_rows.append(pad12([""]))
-    bg_rows.append(pad12([""]))
-    bg_rows.append(pad12([""]))
-    bg_rows.append(pad12(["Department"]))
-    bg_rows.append(pad12(["MetaSphere CFS","MetaSphere EAS","Business Group","Name"]))
+        bg_rows.append(pad_bg(["CommandLink",customer_name,num,"1","Standard Subscribers"]))
+    bg_rows.append(pad_bg([""]))
+    bg_rows.append(pad_bg([""]))
+    bg_rows.append(pad_bg([""]))
+    bg_rows.append(pad_bg(["Department"]))
+    bg_rows.append(pad_bg(["MetaSphere CFS","MetaSphere EAS","Business Group","Name"]))
     for dept in departments:
-        bg_rows.append(pad12(["CommandLink","CommandLink_vEAS_LV",customer_name,dept]))
+        bg_rows.append(pad_bg(["CommandLink","CommandLink_vEAS_LV",customer_name,dept]))
 
     # =========================
     # Build Seats/Devices/Exts/MLHG (width=28)
@@ -169,14 +178,14 @@ if uploaded_file:
     ]))
 
     for i in range(START_ROW, len(user_df)):
-        name         = user_df.iloc[i, COL_NAME]
-        phone        = user_df.iloc[i, COL_PHONE]
-        calling      = user_df.iloc[i, COL_CALLING]
-        email        = user_df.iloc[i, COL_EMAIL]
-        account_type = user_df.iloc[i, COL_ACCT_TYPE]
-        department   = user_df.iloc[i, COL_DEPT]
-        tz_val       = user_df.iloc[i, COL_TZ]
-        template_raw = user_df.iloc[i, COL_TEMPLATE]
+        name         = user_df.iloc[i, 0]
+        phone        = user_df.iloc[i, 1]
+        calling      = user_df.iloc[i, 3]
+        email        = user_df.iloc[i, 5]
+        account_type = user_df.iloc[i, 7]
+        department   = user_df.iloc[i, 8]
+        tz_val       = user_df.iloc[i, 9]
+        template_raw = user_df.iloc[i, 12]
 
         if pd.isna(phone) or str(template_raw).strip() in ["None", "Reserve Number", "None | Reserve Number"]:
             continue
@@ -221,8 +230,8 @@ if uploaded_file:
         "MAC trusted until","Device version","Device model","Description",
     ]))
     for i in range(START_ROW, len(user_df)):
-        phone = user_df.iloc[i, COL_PHONE]
-        mac   = user_df.iloc[i, COL_MAC]
+        phone = user_df.iloc[i, 1]
+        mac   = user_df.iloc[i, 13]
         if pd.isna(phone) or pd.isna(mac) or str(mac).strip() == "":
             continue
         sub_rows.append(pad27([
@@ -238,8 +247,8 @@ if uploaded_file:
         "MetaSphere CFS","MetaSphere EAS","Business Group","First Code","Last Code","First Directory Number",
     ]))
     for i in range(START_ROW, len(user_df)):
-        phone = user_df.iloc[i, COL_PHONE]
-        ext   = user_df.iloc[i, COL_EXT]
+        phone = user_df.iloc[i, 1]
+        ext   = user_df.iloc[i, 4]
         if pd.isna(phone) or pd.isna(ext) or str(ext).strip() == "":
             continue
         sub_rows.append(pad27([
@@ -264,8 +273,8 @@ if uploaded_file:
             dist_alg_clean = "Ring all"
         members = []
         for i in range(START_ROW, len(user_df)):
-            if str(user_df.iloc[i, COL_MLHG]).strip() == str(mlg_name).strip():
-                num = user_df.iloc[i, COL_PHONE]
+            if str(user_df.iloc[i, 14]).strip() == str(mlg_name).strip():
+                num = user_df.iloc[i, 1]
                 if pd.notna(num):
                     members.append(f"{{'{str(num)}';'FALSE'}}")
         sub_rows.append(pad27([
