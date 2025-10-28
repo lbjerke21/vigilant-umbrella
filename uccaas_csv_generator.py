@@ -71,7 +71,7 @@ if uploaded_file:
     line_class_code_1  = eng_ws["C17"].value or ""
     line_class_code_2  = eng_ws["C18"].value or ""
     line_class_code_3a = eng_ws["C12"].value or ""  # existing LCC3
-    line_class_code_3b = eng_ws["C19"].value or ""  # new extra LCC3 (same label)
+    line_class_code_15 = eng_ws["C19"].value or ""  # new extra LCC15
 
     st.success(f"Loaded file for **{customer_name}** (Region: {region})")
 
@@ -131,12 +131,12 @@ if uploaded_file:
         "Music On Hold Service - limit concurrent calls","Music On Hold Service - maximum concurrent calls",
         "Music On Hold Service - Service Level","Music On Hold Service - Application Server",
         # LCC columns
-        "Line Class Code 1","Line Class Code 2","Line Class Code 3","Line Class Code 3",
+        "Line Class Code 1","Line Class Code 2","Line Class Code 3","Line Class Code 15",
     ]))
     bg_rows.append(pad_bg([
         "CommandLink","CommandLink_vEAS_LV",customer_name,bg_template,bg_template,"",
         "TRUE","0","", "16","Enhanced","EAS Voicemail",
-        str(line_class_code_1), str(line_class_code_2), str(line_class_code_3a), str(line_class_code_3b),
+        str(line_class_code_1), str(line_class_code_2), str(line_class_code_3a), str(line_class_code_15),
     ]))
     bg_rows.append(pad_bg([""]))
     bg_rows.append(pad_bg([""]))
@@ -318,3 +318,4 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
+
