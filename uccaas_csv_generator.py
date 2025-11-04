@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 import csv
+import re
 from datetime import datetime, timedelta
 from openpyxl import load_workbook
 
@@ -48,6 +49,9 @@ def mac_trusted_until_str():
     yy = dt.strftime("%y")
     return f"{dt.month}/{dt.day}/{yy} {h12}:{dt.minute:02d}:{dt.second:02d} {ampm}"
 
+def digits_only(v) -> str:
+    return re.sub(r"\D", "", str(v or ""))
+
 # ---------- Main ----------
 
 if uploaded_file:
@@ -67,17 +71,18 @@ if uploaded_file:
     customer_name = user_details_ws["B3"].value
     region = (eng_ws["C4"].value or "").strip()  # CH or LV
 
-    # Line Class Codes from Engineering
-    line_class_code_1  = eng_ws["C17"].value or ""
-    line_class_code_2  = eng_ws["C18"].value or ""
-    line_class_code_3a = eng_ws["C12"].value or ""  # existing LCC3
-    line_class_code_15 = eng_ws["C19"].value or ""  # new extra LCC15
+    # ---- BG LCC defaults (new locations) ----
+    lcc_default_1  = eng_ws["F10"].value or ""
+    lcc_default_2  = eng_ws["C10"].value or ""
+    lcc_default_3  = eng_ws["C12"].value or ""   # unchanged
+    lcc_default_15 = eng_ws["F12"].value or ""
 
     st.success(f"Loaded file for **{customer_name}** (Region: {region})")
 
+    # DataFrames (for simple row addressing)
     user_df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=user_details_ws.title, header=None)
 
-    # Column indexes (0-based)
+    # Column indexes (0-based) for User details
     COL_NAME = 0       # A
     COL_PHONE = 1      # B
     COL_CALLING = 3    # D
@@ -93,8 +98,39 @@ if uploaded_file:
 
     START_ROW = 8  # Excel row 9
 
+    # ---- Build Engineering-based LCC maps ----
+    # Subscriber LCCs: key = Engineering!B (directory number), values = D,E,F,G
+    subs_lcc_map = {}
+    row = 17
+    while True:
+        key_val = eng_ws[f"B{row}"].value
+        if not key_val:
+            break
+        key = digits_only(key_val)
+        l1 = eng_ws[f"D{row}"].value or ""
+        l2 = eng_ws[f"E{row}"].value or ""
+        l3 = eng_ws[f"F{row}"].value or ""
+        l15 = eng_ws[f"G{row}"].value or ""
+        subs_lcc_map[key] = (str(l1), str(l2), str(l3), str(l15))
+        row += 1
+
+    # MLHG Pilot LCCs: key = Engineering!B (pilot number), values = J,K,L,M
+    pilot_lcc_map = {}
+    row = 17
+    while True:
+        key_val = eng_ws[f"B{row}"].value
+        if not key_val:
+            break
+        key = digits_only(key_val)
+        l1 = eng_ws[f"J{row}"].value or ""
+        l2 = eng_ws[f"K{row}"].value or ""
+        l3 = eng_ws[f"L{row}"].value or ""
+        l15 = eng_ws[f"M{row}"].value or ""
+        pilot_lcc_map[key] = (str(l1), str(l2), str(l3), str(l15))
+        row += 1
+
     # =========================
-    # Build BG (width=16)  <-- expanded to add the extra "Line Class Code 3"
+    # Build BG (width=16)
     # =========================
     BG_COLS = 16
     def pad_bg(values): return (values + [""] * max(0, BG_COLS - len(values)))[:BG_COLS]
@@ -130,13 +166,12 @@ if uploaded_file:
         "Local CNAM name","Music On Hold Service - Subscribed","Music On Hold Service - class of service",
         "Music On Hold Service - limit concurrent calls","Music On Hold Service - maximum concurrent calls",
         "Music On Hold Service - Service Level","Music On Hold Service - Application Server",
-        # LCC columns
         "Line Class Code 1","Line Class Code 2","Line Class Code 3","Line Class Code 15",
     ]))
     bg_rows.append(pad_bg([
         "CommandLink","CommandLink_vEAS_LV",customer_name,bg_template,bg_template,"",
         "TRUE","0","", "16","Enhanced","EAS Voicemail",
-        str(line_class_code_1), str(line_class_code_2), str(line_class_code_3a), str(line_class_code_15),
+        str(lcc_default_1), str(lcc_default_2), str(lcc_default_3), str(lcc_default_15),
     ]))
     bg_rows.append(pad_bg([""]))
     bg_rows.append(pad_bg([""]))
@@ -156,9 +191,10 @@ if uploaded_file:
         bg_rows.append(pad_bg(["CommandLink","CommandLink_vEAS_LV",customer_name,dept]))
 
     # =========================
-    # Build Seats/Devices/Exts/MLHG (width=28)
+    # Seats/Devices/Exts/MLHG
+    # Subscribers: add 4 new LCC fields after "use local name ..."
     # =========================
-    SEATS_COLS = 28
+    SEATS_COLS = 32  # 28 + 4 new LCC columns for subscribers
     def pad27(values): return (values + [""] * max(0, SEATS_COLS - len(values)))[:SEATS_COLS]
 
     sub_rows = []
@@ -175,6 +211,8 @@ if uploaded_file:
         "Calling Name Delivery - local name (BG subscriber)","Account Email","Timezone (CFS)","Timezone (EAS)",
         "Calling party number","Charge number","Calling party number for emergency calls","Department (CFS)",
         "Department (EAS)","Calling Name Delivery - use local name for intra-BG calls only",
+        # NEW per-subscriber LCCs
+        "Line Class Code 1","Line Class Code 2","Line Class Code 3","Line Class Code 15",
     ]))
 
     for i in range(START_ROW, len(user_df)):
@@ -201,6 +239,10 @@ if uploaded_file:
         tz_cfs = "" if pd.isna(tz_val) else str(tz_val)
         tz_eas = tz_cfs
 
+        # --- Per-subscriber LCCs:
+        phone_key = digits_only(phone)
+        l1, l2, l3, l15 = subs_lcc_map.get(phone_key, (str(lcc_default_1), str(lcc_default_2), str(lcc_default_3), str(lcc_default_15)))
+
         sub_rows.append(pad27([
             "CommandLink","CommandLink_vEAS_LV",
             str(phone),template,customer_name,customer_name,
@@ -218,6 +260,8 @@ if uploaded_file:
             "" if pd.isna(department) else str(department),
             "" if pd.isna(department) else str(department),
             intra_bg_calls,
+            # subscriber LCCs
+            l1, l2, l3, l15,
         ]))
 
     sub_rows.append(pad27([""]))  # spacer
@@ -288,6 +332,8 @@ if uploaded_file:
     sub_rows.append(pad27([
         "MetaSphere CFS","MetaSphere EAS","Business Group (CFS)","MLHG Name","Phone number",
         "Template","Name (EAS)","Name (CFS)","PIN (EAS)","EAS Password","EAS Customer Group",
+        # NEW per-pilot LCCs (after EAS Customer Group)
+        "Line Class Code 1","Line Class Code 2","Line Class Code 3","Line Class Code 15",
     ]))
     for r in range(17, 28):
         mlg_name     = call_flow_ws[f"B{r}"].value
@@ -296,9 +342,19 @@ if uploaded_file:
         if not mlg_name or not phone_number:
             continue
         pilot_template = f"{region}_MLHG_Pilot" if str(pilot_vm).strip().lower() == "yes" else f"{region}_MLHG_Pilot_NoVM"
+
+        phone_key = digits_only(phone_number)
+        pl1, pl2, pl3, pl15 = pilot_lcc_map.get(
+            phone_key,
+            (str(lcc_default_1), str(lcc_default_2), str(lcc_default_3), str(lcc_default_15))
+        )
+
         sub_rows.append(pad27([
-            "CommandLink","CommandLink_vEAS_LV",customer_name,str(mlg_name),str(phone_number),
-            pilot_template,f"{mlg_name} Pilot",f"{mlg_name} Pilot","*","*","defaultGroup",
+            "CommandLink","CommandLink_vEAS_LV",customer_name,
+            str(mlg_name),str(phone_number),pilot_template,
+            f"{mlg_name} Pilot",f"{mlg_name} Pilot","*","*","defaultGroup",
+            # pilot LCCs
+            pl1, pl2, pl3, pl15,
         ]))
 
     # ---------- Single combined CSV (BG on top of Seats) ----------
