@@ -72,10 +72,10 @@ if uploaded_file:
     region = (eng_ws["C4"].value or "").strip()  # CH or LV
 
     # ---- BG LCC defaults (new locations) ----
-    lcc_default_1  = eng_ws["F10"].value or ""
+    lcc_default_1  = eng_ws["G10"].value or ""
     lcc_default_2  = eng_ws["C10"].value or ""
     lcc_default_3  = eng_ws["C12"].value or ""   # unchanged
-    lcc_default_15 = eng_ws["F12"].value or ""
+    lcc_default_15 = eng_ws["G12"].value or ""
 
     st.success(f"Loaded file for **{customer_name}** (Region: {region})")
 
@@ -374,4 +374,5 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
+
 
