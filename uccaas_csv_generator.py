@@ -118,7 +118,7 @@ if uploaded_file:
     pilot_lcc_map = {}
     row = 17
     while True:
-        key_val = eng_ws[f"B{row}"].value
+        key_val = eng_ws[f"H{row}"].value
         if not key_val:
             break
         key = digits_only(key_val)
@@ -374,3 +374,4 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
+
