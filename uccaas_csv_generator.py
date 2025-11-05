@@ -73,7 +73,7 @@ if uploaded_file:
 
     # ---- BG LCC defaults (new locations) ----
     lcc_default_1  = eng_ws["G10"].value or ""
-    lcc_default_2  = eng_ws["C10"].value or ""
+    lcc_default_2  = eng_ws["C11"].value or ""
     lcc_default_3  = eng_ws["C12"].value or ""   # unchanged
     lcc_default_15 = eng_ws["G12"].value or ""
 
@@ -374,5 +374,6 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
+
 
 
