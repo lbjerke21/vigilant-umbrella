@@ -68,7 +68,7 @@ if uploaded_file:
 
     st.caption(f"✅ Found sheets: {wb.sheetnames}")
 
-    customer_name = user_details_ws["B3"].value
+    customer_name = (eng_ws["C2"].value or "").strip()
     region = (eng_ws["C4"].value or "").strip()  # CH or LV
 
     # ---- BG LCC defaults (new locations) ----
@@ -374,6 +374,7 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file to begin.")
+
 
 
 
